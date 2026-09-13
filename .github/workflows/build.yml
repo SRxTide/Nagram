@@ -1,0 +1,84 @@
+name: Build NagramX arm64 APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: arm64-v8a release
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install NDK & CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.2.12479018" "cmake;3.22.1" "platform-tools" \
+            "platforms;android-35" "build-tools;35.0.0"
+          echo "$ANDROID_HOME/cmake/3.22.1/bin" >> "$GITHUB_PATH"
+
+      - name: Init submodules
+        run: |
+          git submodule update --init \
+            TMessagesProj/jni/boringssl \
+            TMessagesProj/jni/third_party/xiph/ogg \
+            TMessagesProj/jni/third_party/xiph/opus \
+            TMessagesProj/jni/third_party/xiph/opusfile \
+            TMessagesProj/jni/tlottie \
+            TMessagesProj/lib/jlatexmath
+
+      - name: Build boringssl (arm64-v8a)
+        run: |
+          export NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          export ANDROID_NDK_HOME="$NDK"
+          export NINJA_PATH="$ANDROID_HOME/cmake/3.22.1/bin/ninja"
+          cd TMessagesProj/jni
+          ./patch_boringssl.sh
+          ./build_boringssl.sh arm64
+
+      - name: Prepare prebuilt ffmpeg layout
+        run: |
+          cd TMessagesProj/jni/ffmpeg
+          mkdir -p build
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            mkdir -p "build/$abi"
+            for lib in libavcodec libavformat libavutil libswresample libswscale libvpx libdav1d; do
+              [ -f "$abi/$lib.a" ] && cp -f "$abi/$lib.a" "build/$abi/$lib.a"
+            done
+          done
+          mkdir -p build/include
+          cp -rf include/. build/include/
+
+      - name: Build native (libtmessages arm64-v8a)
+        run: |
+          export ANDROID_HOME="$ANDROID_HOME"
+          export NATIVE_TARGET=arm64-v8a
+          ./run libs native
+
+      - name: Assemble release APK
+        env:
+          KEYSTORE_PASS: nagramx2024
+          ALIAS_NAME: nagramx
+          ALIAS_PASS: nagramx2024
+          NATIVE_TARGET: arm64-v8a
+        run: ./gradlew TMessagesProj:assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NagramX-arm64-v8a
+          path: TMessagesProj/build/outputs/apk/release/*.apk
+          if-no-files-found: error
