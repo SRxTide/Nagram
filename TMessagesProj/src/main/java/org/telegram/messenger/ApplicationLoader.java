@@ -100,6 +100,10 @@ public class ApplicationLoader extends Application {
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
         try {
+            xyz.nextalone.nagram.xray.NagramXDiag.install(this);
+        } catch (Throwable ignore) {
+        }
+        try {
             applicationContext = getApplicationContext();
         } catch (Throwable ignore) {
         }
@@ -329,6 +333,7 @@ public class ApplicationLoader extends Application {
 
     @Override
     public void onCreate() {
+        xyz.nextalone.nagram.xray.NagramXDiag.log("onCreate:begin");
         applicationLoaderInstance = this;
         try {
             applicationContext = getApplicationContext();
@@ -353,12 +358,15 @@ public class ApplicationLoader extends Application {
         Utilities.stageQueue.postRunnable(() -> SignturesKt.checkMT(this));
 
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
+        xyz.nextalone.nagram.xray.NagramXDiag.log("nativeLibs:ok");
 
         try {
             ConnectionsManager.native_setJava(false);
         } catch (UnsatisfiedLinkError error) {
+            xyz.nextalone.nagram.xray.NagramXDiag.log("native:FAILED " + error);
             throw new RuntimeException("can't load native libraries " +  Build.CPU_ABI + " lookup folder " + NativeLoader.getAbiFolder());
         }
+        xyz.nextalone.nagram.xray.NagramXDiag.log("native_setJava:ok");
 
         AnalyticsHelper.start(this);
 
@@ -460,6 +468,7 @@ public class ApplicationLoader extends Application {
                 startPushService();
             }
         }, 1000);
+        xyz.nextalone.nagram.xray.NagramXDiag.log("onCreate:end");
     }
 
     @Override

@@ -428,6 +428,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        xyz.nextalone.nagram.xray.NagramXDiag.log("LaunchActivity.onCreate:begin");
         isActive = true;
         activeInstanceCount++;
         if (BuildVars.DEBUG_VERSION) {
