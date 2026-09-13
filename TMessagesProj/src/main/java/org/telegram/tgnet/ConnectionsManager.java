@@ -88,6 +88,7 @@ import tw.nekomimi.nekogram.ErrorDatabase;
 
 import tw.nekomimi.nekogram.utils.ProxyUtil;
 import xyz.nextalone.nagram.NaConfig;
+import xyz.nextalone.nagram.xray.XrayCore;
 
 public class ConnectionsManager extends BaseController {
 
@@ -774,7 +775,14 @@ public class ConnectionsManager extends BaseController {
 
         Utilities.stageQueue.postRunnable(() -> {
             if (SharedConfig.isProxyEnabled()) {
-                native_setProxySettings(currentAccount, SharedConfig.currentProxy.address, SharedConfig.currentProxy.port, SharedConfig.currentProxy.username, SharedConfig.currentProxy.password, SharedConfig.currentProxy.secret);
+                SharedConfig.ProxyInfo currentProxy = SharedConfig.currentProxy;
+                if (XrayCore.isXray(currentProxy)) {
+                    if (XrayCore.start(currentProxy.xrayLink)) {
+                        native_setProxySettings(currentAccount, XrayCore.LOCAL_HOST, XrayCore.LOCAL_PORT, "", "", "");
+                    }
+                } else {
+                    native_setProxySettings(currentAccount, currentProxy.address, currentProxy.port, currentProxy.username, currentProxy.password, currentProxy.secret);
+                }
             }
             checkConnection();
 

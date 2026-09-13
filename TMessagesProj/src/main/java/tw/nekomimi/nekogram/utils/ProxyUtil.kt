@@ -42,6 +42,7 @@ import org.telegram.messenger.LocaleController
 import org.telegram.messenger.NotificationCenter
 import org.telegram.messenger.R
 import org.telegram.messenger.SharedConfig
+import xyz.nextalone.nagram.xray.XrayCore
 import org.telegram.messenger.TelegramQRCodeWriter
 import org.telegram.messenger.browser.Browser
 import tw.nekomimi.nekogram.ui.BottomBuilder
@@ -335,6 +336,22 @@ object ProxyUtil {
 
                     }
 
+                } else if (XrayCore.isXrayLink(line)) {
+
+                    val proxy = XrayCore.parseProxy(line)
+
+                    if (proxy != null) {
+
+                        proxies.add(proxy)
+
+                    } else {
+
+                        error = true
+
+                        showToast(LocaleController.getString(R.string.BrokenLink) + ": $line")
+
+                    }
+
                 }
 
             }
@@ -359,6 +376,22 @@ object ProxyUtil {
                                 error = true
 
                                 showToast(LocaleController.getString(R.string.BrokenLink) + ": ${it.message ?: it.javaClass.simpleName}")
+
+                            }
+
+                        } else if (XrayCore.isXrayLink(line)) {
+
+                            val proxy = XrayCore.parseProxy(line)
+
+                            if (proxy != null) {
+
+                                proxies.add(proxy)
+
+                            } else {
+
+                                error = true
+
+                                showToast(LocaleController.getString(R.string.BrokenLink) + ": $line")
 
                             }
 

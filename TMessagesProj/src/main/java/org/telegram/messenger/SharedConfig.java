@@ -63,6 +63,7 @@ import tw.nekomimi.nekogram.utils.EnvUtil;
 import tw.nekomimi.nekogram.utils.FileUtil;
 import tw.nekomimi.nekogram.utils.UIUtil;
 import xyz.nextalone.nagram.NaConfig;
+import xyz.nextalone.nagram.xray.XrayCore;
 
 import java.util.List;
 import java.util.Locale;
@@ -70,9 +71,11 @@ import java.util.Locale;
 public class SharedConfig {
     /**
      * V2: Ping and check time serialized
+     * V3: Xray share link serialized
      */
     private final static int PROXY_SCHEMA_V2 = 2;
-    private final static int PROXY_CURRENT_SCHEMA_VERSION = PROXY_SCHEMA_V2;
+    private final static int PROXY_SCHEMA_V3 = 3;
+    private final static int PROXY_CURRENT_SCHEMA_VERSION = PROXY_SCHEMA_V3;
 
     public final static int PASSCODE_TYPE_PIN = 0,
             PASSCODE_TYPE_PASSWORD = 1;
@@ -399,6 +402,7 @@ public class SharedConfig {
         public String username;
         public String password;
         public String secret;
+        public String xrayLink;
 
         public long proxyCheckPingId;
         public long ping;
@@ -407,11 +411,16 @@ public class SharedConfig {
         public long availableCheckTime;
 
         public ProxyInfo(String address, int port, String username, String password, String secret) {
+            this(address, port, username, password, secret, "");
+        }
+
+        public ProxyInfo(String address, int port, String username, String password, String secret, String xrayLink) {
             this.address = address;
             this.port = port;
             this.username = username;
             this.password = password;
             this.secret = secret;
+            this.xrayLink = xrayLink;
             if (this.address == null) {
                 this.address = "";
             }
@@ -424,9 +433,19 @@ public class SharedConfig {
             if (this.secret == null) {
                 this.secret = "";
             }
+            if (this.xrayLink == null) {
+                this.xrayLink = "";
+            }
+        }
+
+        public boolean isXray() {
+            return !TextUtils.isEmpty(xrayLink);
         }
 
         public String getLink() {
+            if (!TextUtils.isEmpty(xrayLink)) {
+                return xrayLink;
+            }
             StringBuilder url = new StringBuilder(!TextUtils.isEmpty(secret) ? "https://t.me/proxy?" : "https://t.me/socks?");
             try {
                 url.append("server=").append(URLEncoder.encode(address, "UTF-8")).append("&").append("port=").append(port);
@@ -1525,17 +1544,7 @@ public class SharedConfig {
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         preferences.edit().putBoolean("proxy_enabled", enable).apply();
 
-        ProxyInfo finalInfo = currentProxy;
-        boolean finalEnable = enable;
-        UIUtil.runOnIoDispatcher(() -> {
-            if (finalEnable) {
-                ConnectionsManager.setProxySettings(true, finalInfo.address, finalInfo.port, finalInfo.username, finalInfo.password, finalInfo.secret);
-            } else {
-                ConnectionsManager.setProxySettings(false, "", 0, "", "", "");
-            }
-            UIUtil.runOnUIThread(() -> NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged));
-
-        });
+        XrayCore.applyProxy(enable, currentProxy);
 
     }
 
@@ -1571,7 +1580,7 @@ public class SharedConfig {
             if (count == -1) { // V2 or newer
                 int version = data.readByte(false);
 
-                if (version == PROXY_SCHEMA_V2) {
+                if (version == PROXY_SCHEMA_V3) {
                     count = data.readInt32(false);
 
                     for (int i = 0; i < count; i++) {
@@ -1580,7 +1589,30 @@ public class SharedConfig {
                                 data.readInt32(false),
                                 data.readString(false),
                                 data.readString(false),
+                                data.readString(false),
                                 data.readString(false));
+
+                        info.ping = data.readInt64(false);
+                        info.availableCheckTime = data.readInt64(false);
+
+                        proxyList.add(0, info);
+                        if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
+                            if (proxyAddress.equals(info.address) && proxyPort == info.port && proxyUsername.equals(info.username) && proxyPassword.equals(info.password)) {
+                                currentProxy = info;
+                            }
+                        }
+                    }
+                } else if (version == PROXY_SCHEMA_V2) {
+                    count = data.readInt32(false);
+
+                    for (int i = 0; i < count; i++) {
+                        ProxyInfo info = new ProxyInfo(
+                                data.readString(false),
+                                data.readInt32(false),
+                                data.readString(false),
+                                data.readString(false),
+                                data.readString(false),
+                                "");
 
                         info.ping = data.readInt64(false);
                         info.availableCheckTime = data.readInt64(false);
@@ -1661,6 +1693,7 @@ public class SharedConfig {
             serializedData.writeString(info.username != null ? info.username : "");
             serializedData.writeString(info.password != null ? info.password : "");
             serializedData.writeString(info.secret != null ? info.secret : "");
+            serializedData.writeString(info.xrayLink != null ? info.xrayLink : "");
 
             serializedData.writeInt64(info.ping);
             serializedData.writeInt64(info.availableCheckTime);
@@ -1675,7 +1708,7 @@ public class SharedConfig {
         int count = proxyList.size();
         for (int a = 0; a < count; a++) {
             ProxyInfo info = proxyList.get(a);
-            if (proxyInfo.address.equals(info.address) && proxyInfo.port == info.port && proxyInfo.username.equals(info.username) && proxyInfo.password.equals(info.password) && proxyInfo.secret.equals(info.secret)) {
+            if (proxyInfo.address.equals(info.address) && proxyInfo.port == info.port && proxyInfo.username.equals(info.username) && proxyInfo.password.equals(info.password) && proxyInfo.secret.equals(info.secret) && proxyInfo.xrayLink.equals(info.xrayLink)) {
                 return info;
             }
         }
@@ -1704,7 +1737,7 @@ public class SharedConfig {
             editor.putBoolean("proxy_enabled_calls", false);
             editor.apply();
             if (enabled) {
-                ConnectionsManager.setProxySettings(false, "", 0, "", "", "");
+                XrayCore.applyProxy(false, null);
             }
         }
         proxyList.remove(proxyInfo);

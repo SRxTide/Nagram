@@ -175,3 +175,8 @@
 -dontwarn javax.naming.directory.DirContext
 -dontwarn javax.naming.directory.InitialDirContext
 -dontwarn org.xbill.DNS.spi.DnsjavaInetAddressResolverProvider
+
+# libXray (gomobile bind)
+-keep class libXray.** { *; }
+-keep class go.** { *; }
+-dontwarn libXray.**
