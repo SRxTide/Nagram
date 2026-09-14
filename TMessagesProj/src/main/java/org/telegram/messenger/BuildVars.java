@@ -19,7 +19,8 @@ public class BuildVars {
 
     public static final boolean IS_BILLING_UNAVAILABLE = false;
     public static boolean DEBUG_VERSION = BuildConfig.BUILD_TYPE.equals("debug");
-    public static boolean DEBUG_PRIVATE_VERSION = DEBUG_VERSION;
+    // NagramX: never let FileLog.e() System.exit(2), it kills debug builds silently at startup
+    public static boolean DEBUG_PRIVATE_VERSION = false;
     public static boolean LOGS_ENABLED = DEBUG_PRIVATE_VERSION;
     public static boolean USE_CLOUD_STRINGS = true;
     public static boolean NO_SCOPED_STORAGE = Build.VERSION.SDK_INT <= 29;

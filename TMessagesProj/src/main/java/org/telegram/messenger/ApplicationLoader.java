@@ -66,6 +66,10 @@ import static android.os.Build.VERSION.SDK_INT;
 
 public class ApplicationLoader extends Application {
 
+    static {
+        xyz.nextalone.nagram.xray.NagramXDiag.installHandlerEarly();
+    }
+
     public static ApplicationLoader applicationLoaderInstance;
 
     private static PendingIntent pendingIntent;
@@ -357,6 +361,7 @@ public class ApplicationLoader extends Application {
 
         Utilities.stageQueue.postRunnable(() -> SignturesKt.checkMT(this));
 
+        xyz.nextalone.nagram.xray.NagramXDiag.log("nativeLibs:begin");
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
         xyz.nextalone.nagram.xray.NagramXDiag.log("nativeLibs:ok");
 
