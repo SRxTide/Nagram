@@ -3,7 +3,8 @@
 #include "read_cert.h"
 #include "SHA1.h"
 
-static const char *SIGN = "3A0F57FE06485D0B90D0ACD990E3A30328E3988D";
+// NagramX: our own release keystore certificate SHA1 (coexistence fork)
+static const char *SIGN = "FBA53B4AF6441C0AE216B3F356FA4E398B4E3A4D";
 
 extern "C" {
 int verifySign(JNIEnv *env) {
