@@ -357,4 +357,8 @@
     <string name="LiquidGlassAngle">液体玻璃角度</string>
     <string name="LiquidGlassIntensity">液体玻璃强度</string>
     <string name="DisableGooeyAvatarAnimation">禁用“Gooey”头像动画</string>
+    <string name="NA_XrayProxyLink">Xray 分享链接</string>
+    <string name="NA_XrayProxyLinkHint">粘贴 vless://、vmess://、trojan://、ss:// 或 socks:// 链接</string>
+    <string name="NA_XrayProxyProtocols">支持：VLESS、VMess、Trojan、Shadowsocks 和 SOCKS</string>
+    <string name="NA_XrayProxyInvalid">Xray 分享链接无效或暂不支持</string>
 </resources>

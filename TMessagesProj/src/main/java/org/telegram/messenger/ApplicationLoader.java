@@ -66,10 +66,6 @@ import static android.os.Build.VERSION.SDK_INT;
 
 public class ApplicationLoader extends Application {
 
-    static {
-        xyz.nextalone.nagram.xray.NagramXDiag.installHandlerEarly();
-    }
-
     public static ApplicationLoader applicationLoaderInstance;
 
     private static PendingIntent pendingIntent;
@@ -103,10 +99,6 @@ public class ApplicationLoader extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
-        try {
-            xyz.nextalone.nagram.xray.NagramXDiag.install(this);
-        } catch (Throwable ignore) {
-        }
         try {
             applicationContext = getApplicationContext();
         } catch (Throwable ignore) {
@@ -337,7 +329,6 @@ public class ApplicationLoader extends Application {
 
     @Override
     public void onCreate() {
-        xyz.nextalone.nagram.xray.NagramXDiag.log("onCreate:begin");
         applicationLoaderInstance = this;
         try {
             applicationContext = getApplicationContext();
@@ -361,17 +352,13 @@ public class ApplicationLoader extends Application {
 
         Utilities.stageQueue.postRunnable(() -> SignturesKt.checkMT(this));
 
-        xyz.nextalone.nagram.xray.NagramXDiag.log("nativeLibs:begin");
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
-        xyz.nextalone.nagram.xray.NagramXDiag.log("nativeLibs:ok");
 
         try {
             ConnectionsManager.native_setJava(false);
         } catch (UnsatisfiedLinkError error) {
-            xyz.nextalone.nagram.xray.NagramXDiag.log("native:FAILED " + error);
             throw new RuntimeException("can't load native libraries " +  Build.CPU_ABI + " lookup folder " + NativeLoader.getAbiFolder());
         }
-        xyz.nextalone.nagram.xray.NagramXDiag.log("native_setJava:ok");
 
         AnalyticsHelper.start(this);
 
@@ -473,7 +460,6 @@ public class ApplicationLoader extends Application {
                 startPushService();
             }
         }, 1000);
-        xyz.nextalone.nagram.xray.NagramXDiag.log("onCreate:end");
     }
 
     @Override

@@ -76,24 +76,9 @@ jobs:
           NATIVE_TARGET: arm64-v8a
         run: ./gradlew TMessagesProj:assembleRelease
 
-      - name: Assemble debug APK (diagnostic, no R8)
-        env:
-          KEYSTORE_PASS: nagramx2024
-          ALIAS_NAME: nagramx
-          ALIAS_PASS: nagramx2024
-          NATIVE_TARGET: arm64-v8a
-        run: ./gradlew TMessagesProj:assembleDebug
-
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: NagramX-arm64-v8a-release
           path: TMessagesProj/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: NagramX-arm64-v8a-debug
-          path: TMessagesProj/build/outputs/apk/debug/*.apk
           if-no-files-found: error

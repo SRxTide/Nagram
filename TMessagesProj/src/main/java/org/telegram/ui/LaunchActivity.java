@@ -428,7 +428,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        xyz.nextalone.nagram.xray.NagramXDiag.log("LaunchActivity.onCreate:begin");
         isActive = true;
         activeInstanceCount++;
         if (BuildVars.DEBUG_VERSION) {
@@ -443,7 +442,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
         instance = this;
         ApplicationLoader.postInitApplication();
-        xyz.nextalone.nagram.xray.NagramXDiag.log("postInitApplication:ok");
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
         registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));

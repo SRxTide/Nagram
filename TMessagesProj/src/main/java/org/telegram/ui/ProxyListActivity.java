@@ -14,6 +14,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.app.Dialog;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -29,6 +30,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -484,7 +486,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         ActionBarMenu menu = actionBar.createMenu();
         otherItem = menu.addItem(na_menu_other, R.drawable.ic_ab_other);
         otherItem.setContentDescription(LocaleController.getString("AccDescrMoreOptions", R.string.AccDescrMoreOptions));
-        otherItem.addSubItem(na_menu_add_input_telegram, LocaleController.getString("AddProxyTelegram", R.string.AddProxyTelegram)).setOnClickListener((v) -> presentFragment(new ProxySettingsActivity()));
+        otherItem.addSubItem(na_menu_add_input_telegram, getString(R.string.AddProxy)).setOnClickListener((v) -> showAddProxyDialog());
         otherItem.addSubItem(na_menu_add_import_from_clipboard, LocaleController.getString("ImportProxyFromClipboard", R.string.ImportProxyFromClipboard)).setOnClickListener((v) -> ProxyUtil.importFromClipboard(getParentActivity()));
         otherItem.addSubItem(na_menu_retest_ping, LocaleController.getString("RetestPing", R.string.RetestPing)).setOnClickListener((v) -> {
             checkProxyList(true);
@@ -567,7 +569,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                             editor.commit();
                         }
                     } else {
-                        presentFragment(new ProxySettingsActivity());
+                        showAddProxyDialog();
                         return;
                     }
                 }
@@ -653,7 +655,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 }
                 XrayCore.applyProxy(useProxySettings, SharedConfig.currentProxy);
             } else if (position == proxyAddRow) {
-                presentFragment(new ProxySettingsActivity());
+                showAddProxyDialog();
             } else if (position == deleteAllRow) {
                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
                 builder.setMessage(getString(R.string.DeleteAllProxiesConfirm));
@@ -1247,6 +1249,73 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_INFO;
             }
         }
+    }
+
+    private void showAddProxyDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        new AlertDialog.Builder(getParentActivity())
+                .setTitle(getString(R.string.AddProxy))
+                .setItems(new CharSequence[]{
+                        getString(R.string.AddProxyTelegram),
+                        getString(R.string.NA_XrayProxyLink)
+                }, (dialog, which) -> {
+                    if (which == 0) {
+                        presentFragment(new ProxySettingsActivity());
+                    } else {
+                        showAddXrayDialog();
+                    }
+                })
+                .setNegativeButton(getString(R.string.Cancel), null)
+                .show();
+    }
+
+    private void showAddXrayDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        EditText input = new EditText(getParentActivity());
+        input.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+        input.setSingleLine(false);
+        input.setMinLines(3);
+        input.setMaxLines(8);
+        input.setGravity(Gravity.TOP | Gravity.LEFT);
+        input.setHint(getString(R.string.NA_XrayProxyLinkHint));
+        ClipboardManager clipboard = (ClipboardManager) getParentActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null && clipboard.hasPrimaryClip() && clipboard.getPrimaryClip() != null && clipboard.getPrimaryClip().getItemCount() > 0) {
+            CharSequence clipText = clipboard.getPrimaryClip().getItemAt(0).coerceToText(getParentActivity());
+            if (clipText != null && XrayCore.isXrayLink(clipText.toString().trim())) {
+                input.setText(clipText.toString().trim());
+                input.setSelection(input.length());
+            }
+        }
+        int padding = AndroidUtilities.dp(20);
+        FrameLayout container = new FrameLayout(getParentActivity());
+        container.setPadding(padding, 0, padding, 0);
+        container.addView(input, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        AlertDialog dialog = new AlertDialog.Builder(getParentActivity())
+                .setTitle(getString(R.string.NA_XrayProxyLink))
+                .setMessage(getString(R.string.NA_XrayProxyProtocols))
+                .setView(container)
+                .setNegativeButton(getString(R.string.Cancel), null)
+                .setPositiveButton(getString(R.string.Add), null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String link = input.getText().toString().trim();
+            SharedConfig.ProxyInfo proxy = XrayCore.parseProxy(link);
+            if (proxy == null) {
+                input.setError(getString(R.string.NA_XrayProxyInvalid));
+                return;
+            }
+            SharedConfig.addProxy(proxy);
+            proxyList = SharedConfig.getProxyList();
+            updateRows(true);
+            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
+            dialog.dismiss();
+        }));
+        showDialog(dialog);
     }
 
     @Override

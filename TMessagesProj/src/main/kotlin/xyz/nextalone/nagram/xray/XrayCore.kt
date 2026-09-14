@@ -120,11 +120,20 @@ object XrayCore {
     fun parseProxy(link: String): SharedConfig.ProxyInfo? {
         val outbound = parseOutbound(link) ?: return null
         val settings = outbound.optJSONObject("settings") ?: return null
-        val servers = settings.optJSONArray("vnext") ?: settings.optJSONArray("servers") ?: return null
-        if (servers.length() == 0) return null
-        val server = servers.optJSONObject(0) ?: return null
-        val address = server.optString("address")
-        val port = server.optInt("port")
+
+        // libXray API v3 projects share links to a flat settings object:
+        // {"address":"host","port":443,...}. Keep compatibility with the
+        // classic Xray config shape (vnext[] / servers[]) as well.
+        var address = settings.optString("address")
+        var port = settings.optInt("port")
+        if (address.isEmpty() || port <= 0) {
+            val servers = settings.optJSONArray("vnext") ?: settings.optJSONArray("servers")
+            if (servers != null && servers.length() > 0) {
+                val server = servers.optJSONObject(0)
+                address = server?.optString("address") ?: ""
+                port = server?.optInt("port") ?: 0
+            }
+        }
         if (address.isEmpty() || port <= 0) return null
         return SharedConfig.ProxyInfo(address, port, "", "", "", link)
     }

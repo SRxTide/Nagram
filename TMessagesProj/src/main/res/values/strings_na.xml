@@ -358,4 +358,8 @@
     <string name="LiquidGlassAngle">Liquid Glass angle</string>
     <string name="LiquidGlassIntensity">Liquid Glass intensity</string>
     <string name="DisableGooeyAvatarAnimation">Disable \"Gooey\" avatar animation</string>
+    <string name="NA_XrayProxyLink">Xray share link</string>
+    <string name="NA_XrayProxyLinkHint">Paste a vless://, vmess://, trojan://, ss:// or socks:// link</string>
+    <string name="NA_XrayProxyProtocols">Supported: VLESS, VMess, Trojan, Shadowsocks and SOCKS</string>
+    <string name="NA_XrayProxyInvalid">Invalid or unsupported Xray share link</string>
 </resources>
