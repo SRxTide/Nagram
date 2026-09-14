@@ -1,6 +1,7 @@
 package xyz.nextalone.nagram.xray
 
 import android.text.TextUtils
+import android.util.Base64
 import libXray.LibXray
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,6 +11,9 @@ import org.telegram.messenger.SharedConfig
 import org.telegram.tgnet.ConnectionsManager
 import org.telegram.tgnet.RequestTimeDelegate
 import tw.nekomimi.nekogram.utils.UIUtil
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Bridge between Telegram's proxy system and the embedded Xray core.
@@ -32,7 +36,7 @@ object XrayCore {
     val isRunning: Boolean
         @JvmName("isCoreRunning")
         get() = try {
-            invoke("GetXrayState", null)?.optBoolean("running") == true
+            invoke("getXrayState", null)?.optBoolean("running") == true
         } catch (e: Exception) {
             FileLog.e(TAG, e)
             false
@@ -72,18 +76,243 @@ object XrayCore {
     }
 
     /**
-     * Parse a single share link into an Xray outbound JSON object
-     * using the core's built-in link parser.
+     * Parse a single share link into an Xray outbound JSON object.
+     *
+     * The libXray v26 converter deliberately accepts only a strict subset of
+     * v2rayN links. Real-world clients (including Exclave) are more tolerant:
+     * empty type/flow values are legal and type defaults to raw TCP. Parse the
+     * common URI formats ourselves first, then use libXray as a fallback for
+     * formats such as encrypted subscriptions.
      */
     @JvmStatic
     fun parseOutbound(link: String): JSONObject? {
-        if (!isXrayLink(link)) return null
+        val text = link.trim()
+        if (!isXrayLink(text)) return null
         return try {
-            val data = invoke("ConvertShareLinksToXrayJson", JSONObject().put("text", link))
+            when {
+                text.startsWith("vless://", true) -> parseRayUri(text, "vless")
+                text.startsWith("trojan://", true) -> parseRayUri(text, "trojan")
+                text.startsWith("vmess://", true) -> parseVmess(text)
+                text.startsWith("ss://", true) -> parseShadowsocks(text)
+                text.startsWith("socks://", true) -> parseSocks(text)
+                else -> null
+            } ?: parseOutboundWithLibXray(text)
+        } catch (e: Exception) {
+            FileLog.e(TAG, e)
+            parseOutboundWithLibXray(text)
+        }
+    }
+
+    private fun parseOutboundWithLibXray(link: String): JSONObject? {
+        return try {
+            val data = invoke("convertShareLinksToXrayJson", JSONObject().put("text", link))
             val outbounds = data?.optJSONArray("outbounds")
             if (outbounds != null && outbounds.length() > 0) outbounds.getJSONObject(0) else null
         } catch (e: Exception) {
             FileLog.e(TAG, e)
+            null
+        }
+    }
+
+    /** Exclave-compatible VLESS/Trojan/URI-style VMess parser. */
+    private fun parseRayUri(link: String, protocol: String): JSONObject? {
+        val uri = URI(link)
+        val host = uri.host ?: return null
+        val port = uri.port.takeIf { it in 1..65535 } ?: return null
+        val user = decode(uri.rawUserInfo ?: "").substringBefore(":")
+        if (user.isEmpty()) return null
+        val query = parseQuery(uri.rawQuery)
+
+        val settings = JSONObject().put("address", host).put("port", port)
+        when (protocol) {
+            "vless" -> {
+                // Preserve UUID spelling. Xray performs the final validation.
+                settings.put("id", user)
+                settings.put("encryption", query["encryption"].orEmpty().ifEmpty { "none" })
+                query["flow"]?.takeIf { it.isNotEmpty() && it != "none" }?.let { settings.put("flow", it) }
+            }
+            "vmess" -> {
+                settings.put("id", user)
+                settings.put("security", query["encryption"].orEmpty().ifEmpty { "auto" })
+            }
+            "trojan" -> settings.put("password", decode(uri.rawUserInfo ?: ""))
+        }
+
+        return JSONObject()
+            .put("protocol", protocol)
+            .put("settings", settings)
+            .put("streamSettings", buildStreamSettings(query, protocol))
+            .apply { decode(uri.rawFragment ?: "").takeIf { it.isNotEmpty() }?.let { put("tag", it) } }
+    }
+
+    private fun parseVmess(link: String): JSONObject? {
+        val payload = link.substringAfter("vmess://").substringBefore("#")
+        val decoded = decodeBase64(payload)
+        if (decoded != null && decoded.trimStart().startsWith("{")) {
+            val json = JSONObject(decoded)
+            val host = json.optString("add")
+            val port = json.optString("port").toIntOrNull() ?: json.optInt("port")
+            val id = json.optString("id")
+            if (host.isEmpty() || port !in 1..65535 || id.isEmpty()) return null
+            val settings = JSONObject()
+                .put("address", host)
+                .put("port", port)
+                .put("id", id)
+                .put("security", json.optString("scy").ifEmpty { "auto" })
+            val fields = mutableMapOf<String, String>()
+            fun copy(from: String, to: String = from) {
+                json.optString(from).takeIf { it.isNotEmpty() }?.let { fields[to] = it }
+            }
+            copy("net", "type"); copy("type", "headerType"); copy("host"); copy("path")
+            copy("sni"); copy("alpn"); copy("fp"); copy("pbk"); copy("sid"); copy("spx")
+            json.optString("tls").takeIf { it.isNotEmpty() }?.let { fields["security"] = it }
+            return JSONObject()
+                .put("protocol", "vmess")
+                .put("settings", settings)
+                .put("streamSettings", buildStreamSettings(fields, "vmess"))
+                .apply { json.optString("ps").takeIf { it.isNotEmpty() }?.let { put("tag", it) } }
+        }
+        return parseRayUri(link, "vmess")
+    }
+
+    private fun parseShadowsocks(link: String): JSONObject? {
+        val withoutFragment = link.substringBefore("#")
+        val uri = URI(withoutFragment)
+        var host = uri.host
+        var port = uri.port
+        var userInfo = uri.rawUserInfo?.let(::decode).orEmpty()
+        if (host == null || port !in 1..65535) {
+            val plain = decodeBase64(withoutFragment.substringAfter("ss://")) ?: return null
+            val at = plain.lastIndexOf('@')
+            if (at <= 0) return null
+            userInfo = plain.substring(0, at)
+            val target = URI("ss://" + plain.substring(at + 1))
+            host = target.host
+            port = target.port
+        } else if (!userInfo.contains(':')) {
+            userInfo = decodeBase64(userInfo) ?: return null
+        }
+        if (host.isNullOrEmpty() || port !in 1..65535 || !userInfo.contains(':')) return null
+        val method = userInfo.substringBefore(':')
+        val password = userInfo.substringAfter(':')
+        if (method.isEmpty()) return null
+        return JSONObject()
+            .put("protocol", "shadowsocks")
+            .put("settings", JSONObject()
+                .put("address", host)
+                .put("port", port)
+                .put("method", method)
+                .put("password", password))
+    }
+
+    private fun parseSocks(link: String): JSONObject? {
+        val uri = URI(link)
+        val host = uri.host ?: return null
+        val port = uri.port.takeIf { it in 1..65535 } ?: return null
+        val settings = JSONObject().put("address", host).put("port", port)
+        val userInfo = decode(uri.rawUserInfo ?: "")
+        if (userInfo.contains(':')) {
+            settings.put("user", userInfo.substringBefore(':'))
+            settings.put("pass", userInfo.substringAfter(':'))
+        }
+        return JSONObject().put("protocol", "socks").put("settings", settings)
+    }
+
+    /** Transport/security rules follow Exclave's V2RayFmt parser. */
+    private fun buildStreamSettings(query: Map<String, String>, protocol: String): JSONObject {
+        val rawType = query["type"].orEmpty().lowercase()
+        val network = when (rawType) {
+            "", "tcp", "raw" -> "raw"
+            "websocket" -> "ws"
+            "gun" -> "grpc"
+            "splithttp" -> "xhttp"
+            "mkcp" -> "kcp"
+            "ws", "grpc", "httpupgrade", "xhttp", "kcp" -> rawType
+            else -> "raw" // Exclave intentionally falls back to TCP for unknown values.
+        }
+        val stream = JSONObject().put("network", network)
+        when (network) {
+            "raw" -> if (query["headerType"] == "http") {
+                val request = JSONObject()
+                query["path"]?.takeIf { it.isNotEmpty() }?.let {
+                    request.put("path", JSONArray(it.split(",")))
+                }
+                query["host"]?.takeIf { it.isNotEmpty() }?.let {
+                    request.put("headers", JSONObject().put("Host", JSONArray(it.split(","))))
+                }
+                stream.put("rawSettings", JSONObject().put("header", JSONObject()
+                    .put("type", "http").put("request", request)))
+            }
+            "ws" -> stream.put("wsSettings", JSONObject()
+                .put("path", query["path"].orEmpty())
+                .put("host", query["host"].orEmpty()))
+            "grpc" -> stream.put("grpcSettings", JSONObject()
+                .put("authority", query["authority"].orEmpty())
+                .put("serviceName", query["serviceName"].orEmpty())
+                .put("multiMode", query["mode"] == "multi"))
+            "httpupgrade" -> stream.put("httpupgradeSettings", JSONObject()
+                .put("host", query["host"].orEmpty())
+                .put("path", query["path"].orEmpty()))
+            "xhttp" -> stream.put("xhttpSettings", JSONObject()
+                .put("host", query["host"].orEmpty())
+                .put("path", query["path"].orEmpty())
+                .put("mode", query["mode"].orEmpty()))
+            "kcp" -> query["headerType"]?.takeIf { it.isNotEmpty() && it != "none" }?.let {
+                stream.put("kcpSettings", JSONObject().put("header", JSONObject().put("type", it)))
+            }
+        }
+
+        var security = query["security"].orEmpty().lowercase()
+        if (security == "xtls") security = "tls"
+        if (security !in setOf("none", "tls", "reality")) security = "none"
+        if (protocol == "trojan" && security == "none" && !query.containsKey("security")) security = "tls"
+        stream.put("security", security)
+
+        if (security == "tls") {
+            val tls = JSONObject()
+            query["sni"]?.takeIf { it.isNotEmpty() }?.let { tls.put("serverName", it) }
+            query["fp"]?.takeIf { it.isNotEmpty() }?.let { tls.put("fingerprint", it) }
+            query["alpn"]?.takeIf { it.isNotEmpty() }?.let { tls.put("alpn", JSONArray(it.split(","))) }
+            if (query["allowInsecure"] in setOf("1", "true") || query["insecure"] in setOf("1", "true")) {
+                tls.put("allowInsecure", true)
+            }
+            stream.put("tlsSettings", tls)
+        } else if (security == "reality") {
+            val reality = JSONObject()
+            query["sni"]?.takeIf { it.isNotEmpty() }?.let { reality.put("serverName", it) }
+            query["fp"]?.takeIf { it.isNotEmpty() }?.let { reality.put("fingerprint", it) }
+            query["pbk"]?.takeIf { it.isNotEmpty() }?.let { reality.put("password", it) }
+            query["sid"]?.takeIf { it.isNotEmpty() }?.let { reality.put("shortId", it) }
+            query["spx"]?.takeIf { it.isNotEmpty() }?.let { reality.put("spiderX", it) }
+            stream.put("realitySettings", reality)
+        }
+        return stream
+    }
+
+    private fun parseQuery(rawQuery: String?): Map<String, String> {
+        if (rawQuery.isNullOrEmpty()) return emptyMap()
+        val result = LinkedHashMap<String, String>()
+        for (part in rawQuery.split('&')) {
+            val index = part.indexOf('=')
+            val key = decode(if (index >= 0) part.substring(0, index) else part)
+            val value = decode(if (index >= 0) part.substring(index + 1) else "")
+            result[key] = value
+        }
+        return result
+    }
+
+    private fun decode(value: String): String = try {
+        URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+    } catch (_: Exception) {
+        value
+    }
+
+    private fun decodeBase64(value: String): String? {
+        val clean = value.trim().replace('-', '+').replace('_', '/')
+        val padded = clean + "=".repeat((4 - clean.length % 4) % 4)
+        return try {
+            String(Base64.decode(padded, Base64.DEFAULT), StandardCharsets.UTF_8)
+        } catch (_: Exception) {
             null
         }
     }
@@ -156,7 +385,7 @@ object XrayCore {
         stopInternal()
         val config = buildConfig(link) ?: return false
         return try {
-            invoke("RunXray", JSONObject().put("xrayJson", config))
+            invoke("runXray", JSONObject().put("xrayJson", config))
             runningLink = link
             FileLog.d("$TAG: core started (${protocolOf(link)}) -> $LOCAL_HOST:$LOCAL_PORT")
             true
@@ -175,7 +404,7 @@ object XrayCore {
     private fun stopInternal() {
         if (runningLink != null) {
             try {
-                invoke("StopXray", null)
+                invoke("stopXray", null)
             } catch (e: Exception) {
                 FileLog.e(TAG, e)
             }
@@ -275,7 +504,7 @@ object XrayCore {
     @JvmStatic
     fun coreVersion(): String {
         return try {
-            invoke("XrayVersion", null)?.optString("version") ?: ""
+            invoke("xrayVersion", null)?.optString("version") ?: ""
         } catch (e: Exception) {
             FileLog.e(TAG, e)
             ""
